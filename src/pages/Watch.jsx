@@ -4,6 +4,8 @@ import React, {
   useState,
 } from "react";
 
+import Hls from "hls.js";
+
 import { yuniverseSupabase } from "../lib/yuniverseSupabase";
 
 export default function Watch({
@@ -14,41 +16,26 @@ export default function Watch({
   const [liked, setLiked] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const [likeCount, setLikeCount] =
-    useState(0);
+  const [likeCount, setLikeCount] = useState(0);
+  const [commentCount, setCommentCount] = useState(0);
 
-  const [commentCount, setCommentCount] =
-    useState(0);
+  const [comments, setComments] = useState([]);
+  const [commentText, setCommentText] = useState("");
+  const [loadingComments, setLoadingComments] = useState(false);
 
-  const [comments, setComments] =
-    useState([]);
+  const [subscribed, setSubscribed] = useState(false);
+  const [subscriberCount, setSubscriberCount] = useState(0);
 
-  const [commentText, setCommentText] =
-    useState("");
+  const [channelProfile, setChannelProfile] = useState(null);
 
-  const [loadingComments, setLoadingComments] =
-    useState(false);
+  const [watchSeconds, setWatchSeconds] = useState(0);
+  const [viewCounted, setViewCounted] = useState(false);
 
-  const [subscribed, setSubscribed] =
-    useState(false);
-
-  const [
-    subscriberCount,
-    setSubscriberCount,
-  ] = useState(0);
-
-  const [
-    channelProfile,
-    setChannelProfile,
-  ] = useState(null);
-
-  const [watchSeconds, setWatchSeconds] =
-    useState(0);
-
-  const [viewCounted, setViewCounted] =
-    useState(false);
+  const [videoError, setVideoError] = useState("");
+  const [videoLoading, setVideoLoading] = useState(true);
 
   const playerRef = useRef(null);
+  const hlsRef = useRef(null);
 
   const sessionIdRef = useRef(
     `watch_${Date.now()}_${Math.random()
@@ -58,20 +45,17 @@ export default function Watch({
 
   const sessionStartedRef = useRef(false);
 
-  const currentUserId =
-    getCurrentUserId();
+  const currentUserId = getCurrentUserId();
 
   function getCurrentUserId() {
     try {
-      const savedUser =
-        localStorage.getItem(
-          "yuniverse_user"
-        );
+      const savedUser = localStorage.getItem("yuniverse_user");
 
-      if (!savedUser) return null;
+      if (!savedUser) {
+        return null;
+      }
 
-      const parsed =
-        JSON.parse(savedUser);
+      const parsed = JSON.parse(savedUser);
 
       return (
         parsed?.authUser?.id ||
@@ -83,6 +67,10 @@ export default function Watch({
       return null;
     }
   }
+
+  // =========================================================
+  // VIDEO URL
+  // =========================================================
 
   const playbackUrl =
     video?.video_url ||
@@ -101,7 +89,9 @@ export default function Watch({
   // =========================================================
 
   useEffect(() => {
-    if (!video?.id) return;
+    if (!video?.id) {
+      return;
+    }
 
     loadVideoData();
     startWatchSession();
@@ -110,6 +100,171 @@ export default function Watch({
       updateWatchSession(true);
     };
   }, [video?.id]);
+
+  // =========================================================
+  // VIDEO PLAYER
+  // =========================================================
+
+  useEffect(() => {
+    const videoElement = playerRef.current;
+
+    if (!videoElement || !playbackUrl) {
+      return;
+    }
+
+    setVideoLoading(true);
+    setVideoError("");
+
+    // Destroy previous HLS instance
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    const isHlsUrl =
+      playbackUrl.includes(".m3u8");
+
+    // -------------------------------------------------------
+    // HLS VIDEO
+    // -------------------------------------------------------
+
+    if (isHlsUrl) {
+      // Safari / browsers with native HLS support
+      if (
+        videoElement.canPlayType(
+          "application/vnd.apple.mpegurl"
+        )
+      ) {
+        videoElement.src = playbackUrl;
+
+        videoElement.load();
+
+        return;
+      }
+
+      // Chrome / Firefox / Edge using hls.js
+      if (Hls.isSupported()) {
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: false,
+          backBufferLength: 90,
+        });
+
+        hlsRef.current = hls;
+
+        hls.loadSource(playbackUrl);
+        hls.attachMedia(videoElement);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          setVideoLoading(false);
+          setVideoError("");
+        });
+
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          console.error(
+            "HLS playback error:",
+            data
+          );
+
+          if (!data?.fatal) {
+            return;
+          }
+
+          if (
+            data.type === Hls.ErrorTypes.NETWORK_ERROR
+          ) {
+            console.error(
+              "HLS network error. Retrying..."
+            );
+
+            try {
+              hls.startLoad();
+            } catch (error) {
+              console.error(error);
+            }
+
+            return;
+          }
+
+          if (
+            data.type === Hls.ErrorTypes.MEDIA_ERROR
+          ) {
+            console.error(
+              "HLS media error. Recovering..."
+            );
+
+            try {
+              hls.recoverMediaError();
+            } catch (error) {
+              console.error(error);
+            }
+
+            return;
+          }
+
+          setVideoLoading(false);
+
+          setVideoError(
+            "Video could not be played."
+          );
+
+          hls.destroy();
+          hlsRef.current = null;
+        });
+
+        return;
+      }
+
+      setVideoLoading(false);
+
+      setVideoError(
+        "This browser does not support HLS video playback."
+      );
+
+      return;
+    }
+
+    // -------------------------------------------------------
+    // NORMAL MP4 / SUPABASE VIDEO
+    // -------------------------------------------------------
+
+    videoElement.src = playbackUrl;
+    videoElement.load();
+
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+
+      if (videoElement) {
+        videoElement.removeAttribute("src");
+        videoElement.load();
+      }
+    };
+  }, [playbackUrl]);
+
+  function handleVideoLoaded() {
+    setVideoLoading(false);
+    setVideoError("");
+  }
+
+  function handleVideoError(event) {
+    console.error(
+      "Video playback error:",
+      event?.currentTarget?.error
+    );
+
+    setVideoLoading(false);
+
+    setVideoError(
+      "Video could not be loaded or played."
+    );
+  }
+
+  // =========================================================
+  // LOAD VIDEO DATA
+  // =========================================================
 
   async function loadVideoData() {
     await Promise.all([
@@ -166,28 +321,16 @@ export default function Watch({
   function getChannelName() {
     return (
       channelProfile?.channel_name ||
-      video?.channelProfile
-        ?.channel_name ||
+      video?.channelProfile?.channel_name ||
       "Yuniverse Creator"
     );
   }
 
   function getChannelAvatar() {
     return (
-      channelProfile
-        ?.channel_avatar_url ||
-      video?.channelProfile
-        ?.channel_avatar_url ||
+      channelProfile?.channel_avatar_url ||
+      video?.channelProfile?.channel_avatar_url ||
       null
-    );
-  }
-
-  function getAvatarLetter() {
-    return (
-      getChannelName()
-        .trim()
-        .charAt(0)
-        .toUpperCase() || "Y"
     );
   }
 
@@ -196,6 +339,10 @@ export default function Watch({
   // =========================================================
 
   async function loadLikeStatus() {
+    if (!video?.id) {
+      return;
+    }
+
     try {
       const {
         count,
@@ -212,7 +359,9 @@ export default function Watch({
         setLikeCount(count || 0);
       }
 
-      if (!currentUserId) return;
+      if (!currentUserId) {
+        return;
+      }
 
       const { data } =
         await yuniverseSupabase
@@ -260,16 +409,14 @@ export default function Watch({
               currentUserId
             );
 
-        if (error) throw error;
+        if (error) {
+          throw error;
+        }
 
         setLiked(false);
 
-        setLikeCount(
-          (count) =>
-            Math.max(
-              0,
-              count - 1
-            )
+        setLikeCount((count) =>
+          Math.max(0, count - 1)
         );
       } else {
         const { error } =
@@ -281,7 +428,9 @@ export default function Watch({
                 currentUserId,
             });
 
-        if (error) throw error;
+        if (error) {
+          throw error;
+        }
 
         setLiked(true);
 
@@ -356,7 +505,9 @@ export default function Watch({
               currentUserId
             );
 
-        if (error) throw error;
+        if (error) {
+          throw error;
+        }
 
         setSaved(false);
       } else {
@@ -369,7 +520,9 @@ export default function Watch({
                 currentUserId,
             });
 
-        if (error) throw error;
+        if (error) {
+          throw error;
+        }
 
         setSaved(true);
       }
@@ -386,7 +539,9 @@ export default function Watch({
   // =========================================================
 
   async function loadComments() {
-    if (!video?.id) return;
+    if (!video?.id) {
+      return;
+    }
 
     setLoadingComments(true);
 
@@ -419,7 +574,9 @@ export default function Watch({
           }
         );
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
       setComments(data || []);
       setCommentCount(count || 0);
@@ -456,7 +613,9 @@ export default function Watch({
             comment: text,
           });
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
       setCommentText("");
 
@@ -474,10 +633,7 @@ export default function Watch({
   // =========================================================
 
   async function loadSubscribeStatus() {
-    if (
-      !currentUserId ||
-      !video?.v2i_user_id
-    ) {
+    if (!video?.v2i_user_id) {
       return;
     }
 
@@ -500,6 +656,10 @@ export default function Watch({
         setSubscriberCount(
           count || 0
         );
+      }
+
+      if (!currentUserId) {
+        return;
       }
 
       const { data } =
@@ -550,7 +710,9 @@ export default function Watch({
               video.v2i_user_id
             );
 
-        if (error) throw error;
+        if (error) {
+          throw error;
+        }
 
         setSubscribed(false);
 
@@ -572,7 +734,9 @@ export default function Watch({
                 video.v2i_user_id,
             });
 
-        if (error) throw error;
+        if (error) {
+          throw error;
+        }
 
         setSubscribed(true);
 
@@ -600,14 +764,11 @@ export default function Watch({
       return;
     }
 
-    sessionStartedRef.current =
-      true;
+    sessionStartedRef.current = true;
 
     try {
       await yuniverseSupabase
-        .from(
-          "video_watch_sessions"
-        )
+        .from("video_watch_sessions")
         .insert({
           video_id: video.id,
           v2i_user_id:
@@ -616,8 +777,7 @@ export default function Watch({
             sessionIdRef.current,
           watched_seconds: 0,
           duration_seconds:
-            Number(video.duration) ||
-            0,
+            Number(video.duration) || 0,
           completion_percentage: 0,
           completed: false,
           view_counted: false,
@@ -659,28 +819,20 @@ export default function Watch({
 
     try {
       await yuniverseSupabase
-        .from(
-          "video_watch_sessions"
-        )
+        .from("video_watch_sessions")
         .update({
           watched_seconds:
             watchSeconds,
-
           duration_seconds:
             duration,
-
           completion_percentage:
             percentage,
-
           completed:
             percentage >= 90,
-
           view_counted:
             viewCounted,
-
           last_watched_at:
             new Date().toISOString(),
-
           updated_at:
             new Date().toISOString(),
         })
@@ -702,16 +854,11 @@ export default function Watch({
     }
   }
 
-  async function handleTimeUpdate(
-    event
-  ) {
+  async function handleTimeUpdate(event) {
     const currentTime =
-      event?.target
-        ?.currentTime || 0;
+      event?.target?.currentTime || 0;
 
-    setWatchSeconds(
-      currentTime
-    );
+    setWatchSeconds(currentTime);
 
     if (
       !viewCounted &&
@@ -722,9 +869,7 @@ export default function Watch({
     }
 
     if (
-      Math.floor(
-        currentTime
-      ) % 5 === 0
+      Math.floor(currentTime) % 5 === 0
     ) {
       updateWatchSession();
     }
@@ -756,9 +901,7 @@ export default function Watch({
       }
 
       const currentViews =
-        Number(
-          data?.views || 0
-        );
+        Number(data?.views || 0);
 
       const { error } =
         await yuniverseSupabase
@@ -772,7 +915,9 @@ export default function Watch({
             video.id
           );
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
       setViewCounted(true);
     } catch (error) {
@@ -809,8 +954,7 @@ export default function Watch({
       v2i_id: undefined,
 
       avatar_url:
-        channelProfile
-          ?.channel_avatar_url ||
+        channelProfile?.channel_avatar_url ||
         undefined,
 
       bio:
@@ -818,6 +962,10 @@ export default function Watch({
         "",
     });
   }
+
+  // =========================================================
+  // HELPERS
+  // =========================================================
 
   function formatViews(value) {
     const views = Number(
@@ -842,6 +990,10 @@ export default function Watch({
 
     return String(views);
   }
+
+  // =========================================================
+  // VIDEO NOT FOUND
+  // =========================================================
 
   if (!video) {
     return (
@@ -871,6 +1023,10 @@ export default function Watch({
 
   return (
     <div className="watch-page">
+      {/* =====================================================
+          HEADER
+      ===================================================== */}
+
       <header className="watch-header">
         <button
           className="watch-back"
@@ -891,44 +1047,97 @@ export default function Watch({
         </button>
       </header>
 
+      {/* =====================================================
+          CONTENT
+      ===================================================== */}
+
       <main className="watch-content">
+        {/* ===================================================
+            VIDEO PLAYER
+        =================================================== */}
+
         <div className="watch-player-wrap">
           {playbackUrl ? (
-            <video
-              ref={playerRef}
-              className="watch-player"
-              controls
-              playsInline
-              poster={thumbnailUrl}
-              src={playbackUrl}
-              onTimeUpdate={
-                handleTimeUpdate
-              }
-              onPause={() =>
-                updateWatchSession()
-              }
-              onEnded={() => {
-                setWatchSeconds(
-                  Number(
-                    video.duration
-                  ) ||
-                    watchSeconds
-                );
+            <>
+              {videoLoading && (
+                <div className="watch-video-loading">
+                  Loading video...
+                </div>
+              )}
 
-                updateWatchSession(
-                  true
-                );
-              }}
-            />
+              {videoError ? (
+                <div className="watch-no-video">
+                  <div>
+                    <strong>
+                      Video unavailable
+                    </strong>
+
+                    <p>
+                      {videoError}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <video
+                  ref={playerRef}
+                  className="watch-player"
+                  controls
+                  playsInline
+                  preload="metadata"
+                  poster={thumbnailUrl || undefined}
+                  onLoadedMetadata={
+                    handleVideoLoaded
+                  }
+                  onCanPlay={
+                    handleVideoLoaded
+                  }
+                  onError={
+                    handleVideoError
+                  }
+                  onTimeUpdate={
+                    handleTimeUpdate
+                  }
+                  onPause={() =>
+                    updateWatchSession()
+                  }
+                  onEnded={() => {
+                    setWatchSeconds(
+                      Number(
+                        video.duration
+                      ) ||
+                        watchSeconds
+                    );
+
+                    updateWatchSession(
+                      true
+                    );
+                  }}
+                />
+              )}
+            </>
           ) : (
             <div className="watch-no-video">
-              Video unavailable
+              <div>
+                <strong>
+                  Video unavailable
+                </strong>
+
+                <p>
+                  No video URL was found.
+                </p>
+              </div>
             </div>
           )}
         </div>
 
+        {/* ===================================================
+            DETAILS
+        =================================================== */}
+
         <section className="watch-details">
-          <h1>{video.title}</h1>
+          <h1>
+            {video.title}
+          </h1>
 
           <div className="watch-meta">
             <span>
@@ -941,11 +1150,17 @@ export default function Watch({
             <span>•</span>
 
             <span>
-              {new Date(
-                video.created_at
-              ).toLocaleDateString()}
+              {video.created_at
+                ? new Date(
+                    video.created_at
+                  ).toLocaleDateString()
+                : ""}
             </span>
           </div>
+
+          {/* =================================================
+              ACTIONS
+          ================================================= */}
 
           <div className="watch-actions">
             <button
@@ -984,12 +1199,13 @@ export default function Watch({
                   })
               }
             >
-              💬{" "}
-              {commentCount}
+              💬 {commentCount}
             </button>
           </div>
 
-          {/* CHANNEL */}
+          {/* =================================================
+              CHANNEL
+          ================================================= */}
 
           <div className="watch-channel">
             <button
@@ -1052,12 +1268,20 @@ export default function Watch({
             )}
           </div>
 
+          {/* =================================================
+              DESCRIPTION
+          ================================================= */}
+
           {video.description && (
             <div className="watch-description">
               {video.description}
             </div>
           )}
         </section>
+
+        {/* ===================================================
+            COMMENTS
+        =================================================== */}
 
         <section
           id="comments"
@@ -1073,8 +1297,7 @@ export default function Watch({
               value={commentText}
               onChange={(event) =>
                 setCommentText(
-                  event.target
-                    .value
+                  event.target.value
                 )
               }
               onKeyDown={(event) => {
@@ -1132,9 +1355,11 @@ export default function Watch({
                       </div>
 
                       <div className="comment-date">
-                        {new Date(
-                          item.created_at
-                        ).toLocaleDateString()}
+                        {item.created_at
+                          ? new Date(
+                              item.created_at
+                            ).toLocaleDateString()
+                          : ""}
                       </div>
                     </div>
                   </article>
