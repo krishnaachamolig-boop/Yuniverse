@@ -5,6 +5,7 @@ import React, {
   } from "react";
   
   import { yuniverseSupabase } from "../lib/yuniverseSupabase";
+  import BottomNav from "../components/BottomNav";
   
   export default function Playlists({
     user,
@@ -2706,74 +2707,7 @@ import React, {
             )}
         </main>
   
-        <nav className="bottom-nav">
-          <button
-            className="nav-item"
-            onClick={() =>
-              onNavigate(
-                "home"
-              )
-            }
-          >
-            <span>⌂</span>
-            <small>
-              Home
-            </small>
-          </button>
-  
-          <button
-            className="nav-item"
-            onClick={() =>
-              onNavigate(
-                "search"
-              )
-            }
-          >
-            <span>⌕</span>
-            <small>
-              Search
-            </small>
-          </button>
-  
-          <button
-            className="nav-item upload-nav"
-            onClick={() =>
-              onNavigate(
-                "upload"
-              )
-            }
-          >
-            +
-          </button>
-  
-          <button
-            className="nav-item"
-            onClick={() =>
-              onNavigate(
-                "subscriptions"
-              )
-            }
-          >
-            <span>🔔</span>
-            <small>
-              Subscribe
-            </small>
-          </button>
-  
-          <button
-            className="nav-item active"
-            onClick={() =>
-              onNavigate(
-                "profile"
-              )
-            }
-          >
-            <span>○</span>
-            <small>
-              Profile
-            </small>
-          </button>
-        </nav>
+        <BottomNav activePage="profile" onNavigate={onNavigate} />
       </div>
     );
   }

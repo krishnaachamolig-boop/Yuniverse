@@ -11,6 +11,7 @@ import Subscriptions from "./pages/Subscriptions";
 import EditChannel from "./pages/EditChannel";
 import Playlists from "./pages/Playlists";
 import Settings from "./pages/Settings";
+import LibraryList from "./pages/LibraryList";
 
 import "./index.css";
 
@@ -21,20 +22,20 @@ export default function App() {
   const [selectedChannel, setSelectedChannel] = useState(null);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem("yuniverse_user");
-
-    if (!savedUser) return;
-
     try {
-      const parsedUser = JSON.parse(savedUser);
+      const savedUser = localStorage.getItem("yuniverse_user");
+      if (!savedUser) return;
 
-      setUser(parsedUser);
-      setPage("home");
+      const parsedUser = JSON.parse(savedUser);
+      if (parsedUser) {
+        setUser(parsedUser);
+        setPage("home");
+      }
     } catch (error) {
       console.error("Saved Yuniverse user error:", error);
-
-      localStorage.removeItem("yuniverse_user");
-
+      try {
+        localStorage.removeItem("yuniverse_user");
+      } catch (_) {}
       setUser(null);
       setPage("login");
     }
@@ -42,21 +43,23 @@ export default function App() {
 
   function handleLogin(userData) {
     console.log("Yuniverse login successful:", userData);
-
     setUser(userData);
-
-    localStorage.setItem("yuniverse_user", JSON.stringify(userData));
-
+    try {
+      localStorage.setItem("yuniverse_user", JSON.stringify(userData));
+    } catch (e) {
+      console.warn("Could not save user to localStorage:", e);
+    }
     setPage("home");
   }
 
   function handleLogout() {
-    localStorage.removeItem("yuniverse_user");
+    try {
+      localStorage.removeItem("yuniverse_user");
+    } catch (_) {}
 
     setUser(null);
     setSelectedVideo(null);
     setSelectedChannel(null);
-
     setPage("login");
   }
 
@@ -72,14 +75,21 @@ export default function App() {
     setPage(destination);
   }
 
-  // Login screen
-  if (page === "login") {
-    return <Login onLogin={handleLogin} />;
-  }
-
-  // Safety check
-  if (!user) {
-    return null;
+  // If on login page or no authenticated user, always render Login to prevent black screen
+  if (page === "login" || !user) {
+    return (
+      <Login
+        onLogin={handleLogin}
+        onGuest={() =>
+          handleLogin({
+            id: "guest",
+            username: "guest",
+            fullName: "Guest Viewer",
+            isGuest: true,
+          })
+        }
+      />
+    );
   }
 
   switch (page) {
@@ -111,6 +121,15 @@ export default function App() {
 
     case "settings":
       return <Settings user={user} onNavigate={navigate} />;
+
+    case "history":
+      return <LibraryList user={user} type="history" onNavigate={navigate} />;
+
+    case "liked":
+      return <LibraryList user={user} type="liked" onNavigate={navigate} />;
+
+    case "saved":
+      return <LibraryList user={user} type="saved" onNavigate={navigate} />;
 
     case "profile":
       return (

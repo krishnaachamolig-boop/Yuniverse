@@ -1,14 +1,28 @@
 import React, { useState } from "react";
 import { v2iSupabase } from "../lib/v2iSupabase";
 
+function generateSafeUUID() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    try {
+      return crypto.randomUUID();
+    } catch (_) {}
+  }
+  return "dev_" + Math.random().toString(36).substring(2, 11) + "_" + Date.now().toString(36);
+}
+
 function getOrCreateDeviceId() {
   const storageKey = "v2i_device_id";
 
-  let deviceId = localStorage.getItem(storageKey);
+  let deviceId = null;
+  try {
+    deviceId = localStorage.getItem(storageKey);
+  } catch (_) {}
 
   if (!deviceId) {
-    deviceId = `${Date.now()}-${crypto.randomUUID()}`;
-    localStorage.setItem(storageKey, deviceId);
+    deviceId = `${Date.now()}-${generateSafeUUID()}`;
+    try {
+      localStorage.setItem(storageKey, deviceId);
+    } catch (_) {}
   }
 
   return deviceId;
@@ -91,7 +105,7 @@ function getDeviceInfo() {
   };
 }
 
-export default function Login({ onLogin }) {
+export default function Login({ onLogin, onGuest }) {
   const [v2iId, setV2iId] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -364,15 +378,19 @@ export default function Login({ onLogin }) {
       // STEP 7: LOCAL YUNIVERSE SESSION
       // ==========================================
 
-      localStorage.setItem(
-        "yuniverse_user",
-        JSON.stringify(userData)
-      );
+      try {
+        localStorage.setItem(
+          "yuniverse_user",
+          JSON.stringify(userData)
+        );
 
-      localStorage.setItem(
-        "v2i_current_device_id",
-        deviceInfo.deviceId
-      );
+        localStorage.setItem(
+          "v2i_current_device_id",
+          deviceInfo.deviceId
+        );
+      } catch (storageErr) {
+        console.warn("Could not save session to localStorage:", storageErr);
+      }
 
       console.log(
         "Yuniverse login successful:",
@@ -521,6 +539,32 @@ export default function Login({ onLogin }) {
               ? "Logging in..."
               : "Login"}
           </button>
+
+          {onGuest && (
+            <button
+              type="button"
+              className="guest-button"
+              onClick={onGuest}
+              style={{
+                marginTop: "12px",
+                width: "100%",
+                height: "46px",
+                borderRadius: "14px",
+                border: "1px solid rgba(124, 108, 255, 0.35)",
+                background: "rgba(124, 108, 255, 0.1)",
+                color: "#c4b5fd",
+                fontWeight: 600,
+                fontSize: "14px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transition: "all 0.2s ease",
+              }}
+            >
+              Explore as Guest
+            </button>
+          )}
 
         </form>
 

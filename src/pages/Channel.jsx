@@ -6,6 +6,7 @@ import React, {
 } from "react";
 
 import { yuniverseSupabase } from "../lib/yuniverseSupabase";
+import BottomNav from "../components/BottomNav";
 
 export default function Channel({
   user,
@@ -1345,8 +1346,37 @@ export default function Channel({
 
   return (
     <div className="channel-page">
-      {/* HEADER */}
+      {/* TOP HEADER */}
+      <header className="top-header">
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <button
+            type="button"
+            className="back-button"
+            onClick={() => onNavigate("home")}
+          >
+            ←
+          </button>
+          <button
+            type="button"
+            className="logo-button"
+            onClick={() => onNavigate("home")}
+          >
+            <span>Y</span>universe
+          </button>
+        </div>
 
+        <div className="header-actions">
+          <button
+            type="button"
+            onClick={() => onNavigate("search")}
+            aria-label="Search"
+          >
+            🔍
+          </button>
+        </div>
+      </header>
+
+      {/* CHANNEL HEADER */}
       <header className="channel-header">
         <div className="channel-header-inner">
           <div className="channel-avatar-large">
@@ -2164,58 +2194,7 @@ export default function Channel({
       </main>
 
       {/* BOTTOM NAV */}
-
-      <nav className="bottom-nav">
-        <button
-          className="nav-item"
-          onClick={() =>
-            onNavigate("home")
-          }
-        >
-          <span>⌂</span>
-          <small>Home</small>
-        </button>
-
-        <button
-          className="nav-item"
-          onClick={() =>
-            onNavigate("search")
-          }
-        >
-          <span>⌕</span>
-          <small>Search</small>
-        </button>
-
-        <button
-          className="nav-item upload-nav"
-          onClick={() =>
-            onNavigate("upload")
-          }
-          aria-label="Upload video"
-        >
-          +
-        </button>
-
-        <button
-          className="nav-item"
-          onClick={() =>
-            onNavigate("subscriptions")
-          }
-        >
-          <span>🔔</span>
-          <small>Subscriber</small>
-        </button>
-
-        <button
-          className="nav-item"
-          onClick={() =>
-            onNavigate("profile")
-          }
-        >
-          <span>○</span>
-          <small>Profile</small>
-        </button>
-      </nav>
+      <BottomNav activePage="channel" onNavigate={onNavigate} />
     </div>
   );
 }

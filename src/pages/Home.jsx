@@ -5,75 +5,76 @@ import React, {
 } from "react";
 
 import { yuniverseSupabase } from "../lib/yuniverseSupabase";
+import Navbar from "../components/Navbar";
+import Sidebar from "../components/Sidebar";
+import BottomNav from "../components/BottomNav";
+import VideoCard, { VideoCardSkeleton } from "../components/VideoCard";
 
-export default function Home({ user, onNavigate }) {
+const CATEGORIES = [
+  "All",
+  "Trending",
+  "Music",
+  "Gaming",
+  "News",
+  "Technology",
+  "Education",
+  "Entertainment",
+];
+
+export default function Home({ user, onNavigate, onLogout }) {
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const loadVideos = useCallback(async () => {
     setLoading(true);
     setError("");
 
     try {
-      const { data, error: fetchError } =
-        await yuniverseSupabase
-          .from("videos")
-          .select(
-            `
-              id,
-              v2i_user_id,
-              title,
-              description,
-              video_url,
-              thumbnail_url,
-              duration,
-              width,
-              height,
-              views,
-              created_at,
-              updated_at,
-              mux_asset_id,
-              mux_playback_id,
-              status
-            `
-          )
-          .eq("status", "ready")
-          .not("mux_playback_id", "is", null)
-          .order("created_at", {
-            ascending: false,
-          });
+      const { data, error: fetchError } = await yuniverseSupabase
+        .from("videos")
+        .select(
+          `
+            id,
+            v2i_user_id,
+            title,
+            description,
+            video_url,
+            thumbnail_url,
+            duration,
+            width,
+            height,
+            views,
+            created_at,
+            updated_at,
+            mux_asset_id,
+            mux_playback_id,
+            status
+          `
+        )
+        .eq("status", "ready")
+        .not("mux_playback_id", "is", null)
+        .order("created_at", { ascending: false });
 
-      if (fetchError) {
-        throw fetchError;
-      }
+      if (fetchError) throw fetchError;
 
       const landscapeVideos = (data || [])
         .filter((video) => {
-          if (!video.width || !video.height) {
-            return true;
-          }
-
+          if (!video.width || !video.height) return true;
           const width = Number(video.width);
           const height = Number(video.height);
-
-          if (width <= height) {
-            return false;
-          }
-
+          if (width <= height) return false;
           const ratio = width / height;
-
           return Math.abs(ratio - 16 / 9) <= 0.08;
         })
         .map((video) => ({
           ...video,
-
           views: Number(video.views || 0),
-
           playbackUrl: video.mux_playback_id
             ? `https://stream.mux.com/${video.mux_playback_id}.m3u8`
             : video.video_url,
-
           thumbnailUrl:
             video.thumbnail_url ||
             (video.mux_playback_id
@@ -81,104 +82,34 @@ export default function Home({ user, onNavigate }) {
               : null),
         }));
 
-      // =======================================================
-      // LOAD YUNIVERSE CHANNEL PROFILES
-      // =======================================================
-
       const ownerIds = [
-        ...new Set(
-          landscapeVideos
-            .map(
-              (video) =>
-                video.v2i_user_id
-            )
-            .filter(Boolean)
-        ),
+        ...new Set(landscapeVideos.map((v) => v.v2i_user_id).filter(Boolean)),
       ];
 
       let profileMap = new Map();
-
       if (ownerIds.length > 0) {
-        const {
-          data: channelProfiles,
-          error: profileError,
-        } = await yuniverseSupabase
-          .from("channel_profiles")
-          .select(
-            `
-              v2i_user_id,
-              channel_name,
-              channel_avatar_url,
-              channel_bio
-            `
-          )
-          .in(
-            "v2i_user_id",
-            ownerIds
-          );
+        const { data: channelProfiles, error: profileError } =
+          await yuniverseSupabase
+            .from("channel_profiles")
+            .select("v2i_user_id, channel_name, channel_avatar_url, channel_bio")
+            .in("v2i_user_id", ownerIds);
 
-        if (profileError) {
-          console.error(
-            "Home channel profiles error:",
-            profileError
-          );
-        } else {
+        if (!profileError && channelProfiles) {
           profileMap = new Map(
-            (channelProfiles || []).map(
-              (profile) => [
-                profile.v2i_user_id,
-                profile,
-              ]
-            )
+            channelProfiles.map((p) => [p.v2i_user_id, p])
           );
         }
       }
 
-      const formattedVideos =
-        landscapeVideos.map(
-          (video) => ({
-            ...video,
-
-            channelProfile:
-              profileMap.get(
-                video.v2i_user_id
-              ) || null,
-          })
-        );
-
-      console.log(
-        "Yuniverse Home videos:",
-        formattedVideos.map(
-          (video) => ({
-            id: video.id,
-            title: video.title,
-            v2i_user_id:
-              video.v2i_user_id,
-            channel_name:
-              video.channelProfile
-                ?.channel_name ||
-              "Yuniverse Creator",
-            has_avatar:
-              Boolean(
-                video.channelProfile
-                  ?.channel_avatar_url
-              ),
-            views: video.views,
-          })
-        )
-      );
+      const formattedVideos = landscapeVideos.map((video) => ({
+        ...video,
+        channelProfile: profileMap.get(video.v2i_user_id) || null,
+      }));
 
       setVideos(formattedVideos);
     } catch (err) {
-      console.error(
-        "Yuniverse videos fetch error:",
-        err
-      );
-
-      setError(
-        err?.message ||
-          "Videos load nahi ho paaye."
-      );
+      console.error("Yuniverse videos fetch error:", err);
+      setError(err?.message || "Failed to load videos. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -192,503 +123,162 @@ export default function Home({ user, onNavigate }) {
     function handleWindowFocus() {
       loadVideos();
     }
-
-    window.addEventListener(
-      "focus",
-      handleWindowFocus
-    );
-
-    return () => {
-      window.removeEventListener(
-        "focus",
-        handleWindowFocus
-      );
-    };
+    window.addEventListener("focus", handleWindowFocus);
+    return () => window.removeEventListener("focus", handleWindowFocus);
   }, [loadVideos]);
 
-  function formatViews(value) {
-    const views = Number(value || 0);
+  const filteredVideos = videos.filter((video) => {
+    if (selectedCategory === "All") return true;
+    if (selectedCategory === "Trending") return (video.views || 0) > 0;
+    const q = selectedCategory.toLowerCase();
+    const titleMatch = (video.title || "").toLowerCase().includes(q);
+    const descMatch = (video.description || "").toLowerCase().includes(q);
+    return titleMatch || descMatch;
+  });
 
-    if (views >= 1000000000) {
-      return `${(views / 1000000000)
-        .toFixed(1)
-        .replace(".0", "")}B views`;
+  const displayVideos = filteredVideos.length > 0 ? filteredVideos : videos;
+
+  const handleSaveVideo = async (video) => {
+    const currentUserId = user?.id || user?.authUser?.id || user?.profile?.id;
+    if (!currentUserId || !video?.id) return;
+    try {
+      await yuniverseSupabase.from("saved_videos").upsert({
+        video_id: video.id,
+        v2i_user_id: currentUserId,
+      });
+    } catch (err) {
+      console.warn("Save video error:", err);
     }
-
-    if (views >= 1000000) {
-      return `${(views / 1000000)
-        .toFixed(1)
-        .replace(".0", "")}M views`;
-    }
-
-    if (views >= 1000) {
-      return `${(views / 1000)
-        .toFixed(1)
-        .replace(".0", "")}K views`;
-    }
-
-    return `${views} views`;
-  }
-
-  function formatTime(dateString) {
-    if (!dateString) {
-      return "";
-    }
-
-    const createdAt = new Date(
-      dateString
-    );
-
-    const now = new Date();
-
-    const difference = Math.floor(
-      (now.getTime() -
-        createdAt.getTime()) /
-        1000
-    );
-
-    if (difference < 60) {
-      return "just now";
-    }
-
-    const minutes = Math.floor(
-      difference / 60
-    );
-
-    if (minutes < 60) {
-      return `${minutes} ${
-        minutes === 1
-          ? "minute"
-          : "minutes"
-      } ago`;
-    }
-
-    const hours = Math.floor(
-      minutes / 60
-    );
-
-    if (hours < 24) {
-      return `${hours} ${
-        hours === 1
-          ? "hour"
-          : "hours"
-      } ago`;
-    }
-
-    const days = Math.floor(
-      hours / 24
-    );
-
-    if (days < 30) {
-      return `${days} ${
-        days === 1
-          ? "day"
-          : "days"
-      } ago`;
-    }
-
-    const months = Math.floor(
-      days / 30
-    );
-
-    if (months < 12) {
-      return `${months} ${
-        months === 1
-          ? "month"
-          : "months"
-      } ago`;
-    }
-
-    const years = Math.floor(
-      months / 12
-    );
-
-    return `${years} ${
-      years === 1
-        ? "year"
-        : "years"
-    } ago`;
-  }
-
-  function getChannelName(video) {
-    return (
-      video?.channelProfile
-        ?.channel_name ||
-      "Yuniverse Creator"
-    );
-  }
-
-  function getChannelAvatar(video) {
-    return (
-      video?.channelProfile
-        ?.channel_avatar_url ||
-      null
-    );
-  }
-
-  function getAvatarLetter(name) {
-    return (
-      name?.trim()
-        ?.charAt(0)
-        ?.toUpperCase() || "Y"
-    );
-  }
-
-  function openChannel(video) {
-    if (!video?.v2i_user_id) {
-      console.error(
-        "Channel navigation failed:",
-        video
-      );
-
-      return;
-    }
-
-    const channelProfile =
-      video.channelProfile ||
-      null;
-
-    onNavigate("channel", {
-      id: video.v2i_user_id,
-
-      v2i_user_id:
-        video.v2i_user_id,
-
-      name:
-        channelProfile?.channel_name ||
-        "Yuniverse Creator",
-
-      username: undefined,
-
-      v2i_id: undefined,
-
-      avatar_url:
-        channelProfile
-          ?.channel_avatar_url ||
-        undefined,
-
-      bio:
-        channelProfile?.channel_bio ||
-        "",
-    });
-  }
-
-  function openVideo(video) {
-    onNavigate("watch", video);
-  }
+  };
 
   return (
-    <div className="app-page">
-      {/* HEADER */}
+    <div className="app-shell">
+      {/* GLOBAL NAVBAR */}
+      <Navbar
+        user={user}
+        activePage="home"
+        onNavigate={onNavigate}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
+      />
 
-      <header className="top-header">
-        <button
-          className="logo-button"
-          onClick={() =>
-            onNavigate("home")
-          }
-        >
-          <span>Y</span>universe
-        </button>
+      <div className="app-body">
+        {/* DESKTOP SIDEBAR */}
+        <Sidebar
+          activePage="home"
+          onNavigate={onNavigate}
+          collapsed={sidebarCollapsed}
+        />
 
-        <div className="header-actions">
-          <button
-            onClick={() =>
-              onNavigate("search")
-            }
-            aria-label="Search"
-          >
-            🔍
-          </button>
-
-          <button
-            onClick={() =>
-              onNavigate("upload")
-            }
-            aria-label="Upload"
-          >
-            ＋
-          </button>
-
-          <button
-            onClick={() =>
-              onNavigate("profile")
-            }
-            aria-label="Profile"
-          >
-            👤
-          </button>
-        </div>
-      </header>
-
-      {/* MAIN */}
-
-      <main className="page-content">
-       
-
-        {/* CATEGORIES */}
-
-        <div className="category-row">
-          <button className="category active">
-            All
-          </button>
-
-          <button className="category">
-            Music
-          </button>
-
-          <button className="category">
-            Gaming
-          </button>
-
-          <button className="category">
-            News
-          </button>
-
-          <button className="category">
-            Education
-          </button>
-        </div>
-
-        {/* VIDEO SECTION */}
-
-        <section className="video-section">
-          <div className="section-heading">
-            <h2>
-              {videos.length > 0
-                ? "Recommended"
-                : "Videos"}
-            </h2>
-
-            <button
-              onClick={loadVideos}
-              disabled={loading}
-            >
-              {loading
-                ? "Loading..."
-                : "Refresh"}
-            </button>
-          </div>
-
-          {loading && (
-            <div className="empty-state">
-              <div className="loading-spinner" />
-
-              <p>
-                Yuniverse videos load ho
-                rahe hain...
-              </p>
+        {/* MAIN FEED CONTENT */}
+        <main className="app-main">
+          <div className="page-content">
+            {/* CATEGORY FILTER CHIPS ROW */}
+            <div className="category-row">
+              {CATEGORIES.map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  className={`category ${selectedCategory === cat ? "active" : ""}`}
+                  onClick={() => setSelectedCategory(cat)}
+                >
+                  {cat}
+                </button>
+              ))}
             </div>
-          )}
 
-          {!loading && error && (
-            <div className="empty-state">
-              <h3>
-                Videos load nahi hue
-              </h3>
-
-              <p>{error}</p>
-
+            {/* SECTION HEADING */}
+            <div className="section-heading">
+              <h2>
+                {selectedCategory === "All"
+                  ? "Recommended for You"
+                  : selectedCategory}
+              </h2>
               <button
-                className="primary-button"
+                type="button"
                 onClick={loadVideos}
+                disabled={loading}
               >
-                Try again
+                {loading ? "Refreshing..." : "Refresh Feed"}
               </button>
             </div>
-          )}
 
-          {!loading &&
-            !error &&
-            videos.length === 0 && (
+            {/* LOADING SKELETONS */}
+            {loading && (
+              <div className="video-grid">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <VideoCardSkeleton key={i} />
+                ))}
+              </div>
+            )}
+
+            {/* ERROR STATE */}
+            {!loading && error && (
               <div className="empty-state">
-                <div className="empty-icon">
-                  ▶
-                </div>
-
-                <h3>
-                  Abhi koi video nahi hai
-                </h3>
-
-                <p>
-                  Yuniverse par pehla
-                  video upload karo.
-                </p>
-
+                <div className="empty-icon">⚠️</div>
+                <h3>Unable to load videos</h3>
+                <p>{error}</p>
                 <button
+                  type="button"
                   className="primary-button"
-                  onClick={() =>
-                    onNavigate("upload")
-                  }
+                  onClick={loadVideos}
                 >
-                  Upload video
+                  Try Again
                 </button>
               </div>
             )}
 
-          {!loading &&
-            !error &&
-            videos.length > 0 && (
-              <div className="video-grid">
-                {videos.map((video) => {
-                  const channelName =
-                    getChannelName(video);
+            {/* EMPTY STATE */}
+            {!loading && !error && videos.length === 0 && (
+              <div className="empty-state">
+                <div className="empty-icon">▶</div>
+                <h3>No videos found</h3>
+                <p>Be the first creator to upload a video on Yuniverse!</p>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => onNavigate("upload")}
+                >
+                  Upload a Video
+                </button>
+              </div>
+            )}
 
+            {/* VIDEO GRID */}
+            {!loading && !error && displayVideos.length > 0 && (
+              <div className="video-grid">
+                {displayVideos.map((video) => {
+                  const channelName =
+                    video.channelProfile?.channel_name || "Yuniverse Creator";
                   const channelAvatar =
-                    getChannelAvatar(video);
+                    video.channelProfile?.channel_avatar_url || null;
 
                   return (
-                    <article
-                      className="video-card"
+                    <VideoCard
                       key={video.id}
-                    >
-                      <div
-                        className="video-thumbnail"
-                        onClick={() =>
-                          openVideo(video)
-                        }
-                      >
-                        {video.thumbnailUrl ? (
-                          <img
-                            src={
-                              video.thumbnailUrl
-                            }
-                            alt={video.title}
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="thumbnail-placeholder">
-                            <span>▶</span>
-                          </div>
-                        )}
-
-                        <div className="thumbnail-play">
-                          ▶
-                        </div>
-                      </div>
-
-                      {/* VIDEO INFO */}
-
-                      <div className="video-info">
-                        <button
-                          className="channel-avatar channel-avatar-button"
-                          onClick={() =>
-                            openChannel(
-                              video
-                            )
-                          }
-                          aria-label="Open channel"
-                        >
-                          {channelAvatar ? (
-  <img
-    src={channelAvatar}
-    alt={channelName}
-    className="channel-profile-avatar"
-  />
-) : (
-  getAvatarLetter(channelName)
-)}
-                        </button>
-
-                        <div className="video-text">
-                          <h3
-                            title={
-                              video.title
-                            }
-                            onClick={() =>
-                              openVideo(
-                                video
-                              )
-                            }
-                          >
-                            {video.title}
-                          </h3>
-
-                          <button
-                            className="video-channel-name"
-                            onClick={() =>
-                              openChannel(
-                                video
-                              )
-                            }
-                          >
-                            {channelName}
-                          </button>
-
-                          <small>
-                            {formatViews(
-                              video.views
-                            )}
-
-                            {" • "}
-
-                            {formatTime(
-                              video.created_at
-                            )}
-                          </small>
-                        </div>
-                      </div>
-                    </article>
+                      video={video}
+                      channelName={channelName}
+                      channelAvatar={channelAvatar}
+                      onVideoClick={(v) => onNavigate("watch", v)}
+                      onChannelClick={(v) =>
+                        onNavigate("channel", {
+                          v2i_user_id: v.v2i_user_id,
+                          channel_name: channelName,
+                          channel_avatar_url: channelAvatar,
+                        })
+                      }
+                      onSaveVideo={handleSaveVideo}
+                    />
                   );
                 })}
               </div>
             )}
-        </section>
-      </main>
+          </div>
+        </main>
+      </div>
 
-      {/* BOTTOM NAVIGATION */}
-
-      <nav className="bottom-nav">
-        <button
-          className="nav-item active"
-          onClick={() =>
-            onNavigate("home")
-          }
-        >
-          <span>⌂</span>
-          <small>Home</small>
-        </button>
-
-        <button
-          className="nav-item"
-          onClick={() =>
-            onNavigate("search")
-          }
-        >
-          <span>⌕</span>
-          <small>Search</small>
-        </button>
-
-        <button
-          className="nav-item upload-nav"
-          onClick={() =>
-            onNavigate("upload")
-          }
-          aria-label="Upload video"
-        >
-          +
-        </button>
-
-        <button
-          className="nav-item"
-          onClick={() =>
-            onNavigate("subscriptions")
-          }
-        >
-          <span>🔔</span>
-          <small>Subscribe</small>
-        </button>
-
-        <button
-          className="nav-item"
-          onClick={() =>
-            onNavigate("profile")
-          }
-        >
-          <span>○</span>
-          <small>Profile</small>
-        </button>
-      </nav>
+      {/* MOBILE BOTTOM NAVIGATION */}
+      <BottomNav activePage="home" onNavigate={onNavigate} />
     </div>
   );
 }
